@@ -508,32 +508,44 @@ def generate():
         if not paths:
             return jsonify({"error": "Nepodarilo sa ulozit reference images."}), 400
 
-        generated_images = []
+        results = []
         out_width = None
         out_height = None
         resolved_model = None
 
         for _ in range(batch_count):
-            result_path, out_width, out_height, resolved_model = run_nanobanana_edit(
-                prompt=prompt,
-                image_paths=paths,
-                image_urls=image_urls,
-                api_key=user_api_key,
-                provider=provider,
-                iphone_style=iphone_style,
-                aspect_ratio=aspect_ratio,
-                quality=quality,
-                model_name=model_name,
-                safety_threshold=safety_threshold,
-                width=width if width else None,
-                height=height if height else None,
-            )
+            try:
+                result_path, out_width, out_height, resolved_model = run_nanobanana_edit(
+                    prompt=prompt,
+                    image_paths=paths,
+                    image_urls=image_urls,
+                    api_key=user_api_key,
+                    provider=provider,
+                    iphone_style=iphone_style,
+                    aspect_ratio=aspect_ratio,
+                    quality=quality,
+                    model_name=model_name,
+                    safety_threshold=safety_threshold,
+                    width=width if width else None,
+                    height=height if height else None,
+                )
 
-            generated_images.append("/outputs/" + os.path.basename(result_path))
+                results.append({
+                    "type": "image",
+                    "url": "/outputs/" + os.path.basename(result_path)
+                })
+
+            except Exception as err:
+                error_text = str(err)
+                print("GENERATION ERROR:", error_text)
+
+                results.append({
+                    "type": "error",
+                    "error": error_text
+                })
 
         return jsonify({
-            "images": generated_images,
-            "image": generated_images[0] if generated_images else None,
+            "results": results,
             "width": out_width,
             "height": out_height,
             "model": resolved_model,
