@@ -7,6 +7,7 @@ from urllib.parse import unquote
 from flask import Flask, request, jsonify, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -137,7 +138,7 @@ def login():
         users = load_users()
 
         for user in users:
-            if user.get("email") == email and user.get("password") == password:
+            if user.get("email") == email and check_password_hash(user.get("password", ""), password):
                 session["user"] = sanitize_user(user)
                 session.permanent = remember_me
 
@@ -194,7 +195,7 @@ def create_admin_user():
 
         new_user = {
             "email": email,
-            "password": password,
+            "password": generate_password_hash(password),
             "role": role,
         }
 
@@ -250,7 +251,7 @@ def update_admin_user(email):
             new_password = str(new_password).strip()
             if not new_password:
                 return jsonify({"error": "Heslo nemoze byt prazdne"}), 400
-            update_payload["password"] = new_password
+            update_payload["password"] = generate_password_hash(new_password)
 
         if not update_payload:
             return jsonify({"error": "Nemas co menit"}), 400
