@@ -26,7 +26,14 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 CORS(
     app,
     supports_credentials=True,
-    origins="*",
+    origins=[
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://shortyofm.eu",
+        "https://www.shortyofm.eu",
+    ],
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -307,7 +314,7 @@ def generate():
             return jsonify({"error": "batch_count musi byt v rozsahu 1 az 5"}), 400
 
         if not API_KEY:
-            return jsonify({"error": "V backende chyba GEMINI_API_KEY v .env subore."}), 500
+            return jsonify({"error": "V backende chyba GEMINI_API_KEY v Environment Variables."}), 500
 
         if not prompt:
             return jsonify({"error": "Prompt je prazdny"}), 400
@@ -376,4 +383,4 @@ def serve_output(filename):
 
 
 if __name__ == "__main__":
-    app.run(host="localhost", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
