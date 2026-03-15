@@ -12,8 +12,6 @@ ASPECT_RATIO_MAP = {
     "9:16": (9, 16),
     "4:3": (4, 3),
     "3:4": (3, 4),
-    "5:4": (5, 4),
-    "4:5": (4, 5),
     "3:2": (3, 2),
     "2:3": (2, 3),
 }
@@ -93,37 +91,6 @@ def map_seedream_model(model_name):
         return "bytedance/seedream-v5.0-lite/edit"
 
     raise ValueError("Nepodporovany Seedream model.")
-
-
-def wait_for_wavespeed_result(get_url, api_key, timeout_seconds=240, poll_interval=3):
-    start_time = time.time()
-
-    while True:
-        if time.time() - start_time > timeout_seconds:
-            raise TimeoutError("Wavespeed timeout pri cakani na vysledok.")
-
-        response = requests.get(
-            get_url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=60,
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        prediction = data.get("data", {}) or {}
-        status = prediction.get("status", "")
-
-        if status == "completed":
-            outputs = prediction.get("outputs", []) or []
-            if not outputs:
-                raise ValueError(f"Wavespeed task je completed, ale nema outputs. Odpoved: {data}")
-            return outputs[0], prediction.get("model", "")
-
-        if status == "failed":
-            error = prediction.get("error", "Wavespeed task failed.")
-            raise RuntimeError(error)
-
-        time.sleep(poll_interval)
 
 
 def run_gemini_nanobanana_edit(
@@ -229,7 +196,7 @@ def run_wavespeed_edit(
         "prompt": prompt,
         "images": public_image_urls,
         "size": size_value,
-        "enable_sync_mode": False,
+        "enable_sync_mode": True,
         "enable_base64_output": False,
     }
 
@@ -240,25 +207,17 @@ def run_wavespeed_edit(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
-        timeout=60,
+        timeout=180,
     )
     response.raise_for_status()
     data = response.json()
 
-    prediction = data.get("data", {}) or {}
-    outputs = prediction.get("outputs", []) or []
+    outputs = data.get("data", {}).get("outputs", []) or []
 
-    if outputs:
-        result_url = outputs[0]
-    elif prediction.get("urls", {}).get("get"):
-        result_url, _ = wait_for_wavespeed_result(
-            prediction["urls"]["get"],
-            api_key,
-            timeout_seconds=240,
-            poll_interval=3,
-        )
-    else:
+    if not outputs:
         raise ValueError(f"Wavespeed nevratil obrazok. Odpoved: {data}")
+
+    result_url = outputs[0]
 
     image_response = requests.get(result_url, timeout=120)
     image_response.raise_for_status()
