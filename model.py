@@ -1,6 +1,5 @@
 import os
 import io
-import time
 import uuid
 import base64
 import requests
@@ -61,12 +60,6 @@ def save_output_image_from_bytes(image_bytes, aspect_ratio="1:1", quality="2K", 
     img.save(output_path, format="JPEG", quality=95)
 
     return output_path, target_width, target_height
-
-
-def local_image_to_public_url(path):
-    base_url = os.getenv("PUBLIC_BASE_URL", "https://nanobanana-backend-dn2n.onrender.com").rstrip("/")
-    filename = os.path.basename(path)
-    return f"{base_url}/outputs/{filename}"
 
 
 def map_nanobanana_model(model_name):
@@ -171,7 +164,7 @@ def run_gemini_nanobanana_edit(
 
 def run_wavespeed_edit(
     prompt,
-    image_paths,
+    image_urls,
     api_key,
     aspect_ratio="1:1",
     quality="2K",
@@ -190,11 +183,9 @@ def run_wavespeed_edit(
 
     size_value = f"{out_width}*{out_height}"
 
-    public_image_urls = [local_image_to_public_url(path) for path in image_paths]
-
     payload = {
         "prompt": prompt,
-        "images": public_image_urls,
+        "images": image_urls,
         "size": size_value,
         "enable_sync_mode": True,
         "enable_base64_output": False,
@@ -234,6 +225,7 @@ def run_wavespeed_edit(
 def run_nanobanana_edit(
     prompt,
     image_paths,
+    image_urls,
     api_key,
     provider="gemini",
     iphone_style=False,
@@ -261,7 +253,7 @@ def run_nanobanana_edit(
 
     return run_wavespeed_edit(
         prompt=prompt,
-        image_paths=image_paths,
+        image_urls=image_urls,
         api_key=api_key,
         aspect_ratio=aspect_ratio,
         quality=quality,
