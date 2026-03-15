@@ -1,8 +1,8 @@
 import os
 import io
 import time
-import base64
 import uuid
+import base64
 import requests
 from PIL import Image
 
@@ -112,7 +112,7 @@ def local_image_to_public_url(path):
     return f"{base_url}/outputs/{filename}"
 
 
-def normalize_model_for_provider(provider, model_name):
+def normalize_seedream_model_for_provider(provider, model_name):
     provider = (provider or "wavespeed").strip().lower()
     model_name = (model_name or "seedream-4.5").strip().lower()
 
@@ -131,6 +131,18 @@ def normalize_model_for_provider(provider, model_name):
         return "seedream-v4-5-api"
 
     raise ValueError("Nepodporovany provider.")
+
+
+def map_nanobanana_model(model_name):
+    model_name = (model_name or "flash").strip().lower()
+
+    if model_name in ["flash", "nanobanana 2", "nanobanana2", "nano banana 2"]:
+        return "gemini-3.1-flash-image-preview"
+
+    if model_name in ["pro", "nanobanana pro", "nanobananapro", "nano banana pro"]:
+        return "gemini-3-pro-image-preview"
+
+    raise ValueError("Nepodporovany NanoBanana model.")
 
 
 def build_wavespeed_size(aspect_ratio, quality):
@@ -187,7 +199,7 @@ def run_wavespeed_edit(
     quality="2K",
     model_name="seedream-4.5",
 ):
-    resolved_model = normalize_model_for_provider("wavespeed", model_name)
+    resolved_model = normalize_seedream_model_for_provider("wavespeed", model_name)
     submit_url = f"https://api.wavespeed.ai/api/v3/{resolved_model}"
 
     size_value, target_width, target_height = build_wavespeed_size(aspect_ratio, quality)
@@ -298,7 +310,7 @@ def run_sjinn_edit(
     quality="2K",
     model_name="seedream-4.5",
 ):
-    resolved_model = normalize_model_for_provider("sjinn", model_name)
+    resolved_model = normalize_seedream_model_for_provider("sjinn", model_name)
     submit_url = "https://sjinn.ai/api/un-api/create_tool_task"
 
     public_image_urls = [local_image_to_public_url(path) for path in image_paths]
@@ -355,6 +367,74 @@ def run_sjinn_edit(
     return output_path, target_width, target_height, resolved_tool
 
 
+def run_gemini_nanobanana_edit(
+    prompt,
+    image_paths,
+    api_key,
+    aspect_ratio="1:1",
+    quality="2K",
+    model_name="flash",
+):
+    resolved_model = map_nanobanana_model(model_name)
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{resolved_model}:generateContent?key={api_key}"
+
+    parts = [{"text": prompt}]
+
+    for path in image_paths:
+        with open(path, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+        parts.append({
+            "inline_data": {
+                "mime_type": "image/jpeg",
+                "data": encoded,
+            }
+        })
+
+    payload = {
+        "contents": [
+            {
+                "parts": parts
+            }
+        ]
+    }
+
+    response = requests.post(
+        endpoint,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=180,
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    candidates = data.get("candidates", []) or []
+    if not candidates:
+        raise ValueError(f"Gemini nevratil candidates. Odpoved: {data}")
+
+    content = candidates[0].get("content", {}) or {}
+    response_parts = content.get("parts", []) or []
+
+    image_b64 = None
+
+    for part in response_parts:
+        inline_data = part.get("inlineData") or part.get("inline_data")
+        if inline_data and inline_data.get("data"):
+            image_b64 = inline_data["data"]
+            break
+
+    if not image_b64:
+        raise ValueError(f"Gemini nevratil image data. Odpoved: {data}")
+
+    image_bytes = base64.b64decode(image_b64)
+    output_path, target_width, target_height = save_output_image_from_bytes(
+        image_bytes,
+        aspect_ratio=aspect_ratio,
+        quality=quality,
+    )
+
+    return output_path, target_width, target_height, resolved_model
+
+
 def run_nanobanana_edit(
     prompt,
     image_paths,
@@ -376,6 +456,20 @@ def run_nanobanana_edit(
         quality=quality,
     )
 
+    normalized_model = (model_name or "").strip().lower()
+
+    # NANO BANANA -> vzdy Gemini
+    if normalized_model in ["flash", "pro", "nanobanana 2", "nanobanana pro"]:
+        return run_gemini_nanobanana_edit(
+            prompt=final_prompt,
+            image_paths=image_paths,
+            api_key=api_key,
+            aspect_ratio=aspect_ratio,
+            quality=quality,
+            model_name=normalized_model,
+        )
+
+    # SEEDREAM -> provider podľa settings
     provider = (provider or "wavespeed").strip().lower()
 
     if provider == "wavespeed":
