@@ -17,10 +17,10 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "nanobanana-local-secret-key-change-this")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "nanobanana-secret-key")
 
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+app.config["SESSION_COOKIE_SECURE"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
 CORS(
