@@ -5,3 +5,4 @@ gunicorn
 werkzeug
 requests
 Pillow
+supabase
