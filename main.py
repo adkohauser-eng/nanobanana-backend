@@ -17,6 +17,7 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "reference-images")
 
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
     raise RuntimeError("Chybaju SUPABASE_URL alebo SUPABASE_SERVICE_ROLE_KEY v Environment Variables.")
@@ -96,6 +97,25 @@ def save_user_settings(email, wavespeed_api_key):
         supabase.table("user_settings").update(payload).eq("user_email", email).execute()
     else:
         supabase.table("user_settings").insert(payload).execute()
+
+
+def upload_to_supabase_storage(local_path):
+    filename = f"{uuid.uuid4().hex}_{os.path.basename(local_path)}"
+
+    with open(local_path, "rb") as f:
+        file_bytes = f.read()
+
+    supabase.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+        path=filename,
+        file=file_bytes,
+        file_options={
+            "content-type": "image/png",
+            "upsert": "true",
+        },
+    )
+
+    public_data = supabase.storage.from_(SUPABASE_STORAGE_BUCKET).get_public_url(filename)
+    return public_data
 
 
 def sanitize_user(user):
@@ -437,9 +457,11 @@ def generate():
         if model_name in ["flash", "pro"]:
             provider = "gemini"
             user_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+            image_urls = []
         else:
             provider = "wavespeed"
             user_api_key = user_settings.get("wavespeed_api_key", "").strip()
+            image_urls = []
 
         batch_count_raw = request.form.get("batch_count", "1").strip()
         try:
@@ -479,6 +501,10 @@ def generate():
             img.save(save_path)
             paths.append(save_path)
 
+            if provider == "wavespeed":
+                public_url = upload_to_supabase_storage(save_path)
+                image_urls.append(public_url)
+
         if not paths:
             return jsonify({"error": "Nepodarilo sa ulozit reference images."}), 400
 
@@ -491,6 +517,7 @@ def generate():
             result_path, out_width, out_height, resolved_model = run_nanobanana_edit(
                 prompt=prompt,
                 image_paths=paths,
+                image_urls=image_urls,
                 api_key=user_api_key,
                 provider=provider,
                 iphone_style=iphone_style,
