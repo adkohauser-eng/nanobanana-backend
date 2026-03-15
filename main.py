@@ -76,8 +76,8 @@ def sanitize_user(user):
     }
 
 
-def count_admins(users):
-    return sum(1 for user in users if user.get("role") == "admin")
+def count_owners(users):
+    return sum(1 for user in users if user.get("role") == "owner")
 
 
 def find_user_by_email(users, email):
@@ -96,13 +96,22 @@ def login_required(func):
     return wrapper
 
 
-def admin_required(func):
+def is_owner():
+    current_user = session.get("user", {})
+    return current_user.get("role") == "owner"
+
+
+def is_admin():
+    current_user = session.get("user", {})
+    return current_user.get("role") in ["admin", "owner"]
+
+
+def admin_or_owner_required(func):
     @wraps(func)
     @login_required
     def wrapper(*args, **kwargs):
-        current_user = session.get("user", {})
-        if current_user.get("role") != "admin":
-            return jsonify({"error": "Pristup len pre admina"}), 403
+        if not is_admin():
+            return jsonify({"error": "Pristup len pre admina alebo ownera"}), 403
         return func(*args, **kwargs)
     return wrapper
 
@@ -163,7 +172,7 @@ def logout():
 
 
 @app.route("/admin/users", methods=["GET"])
-@admin_required
+@admin_or_owner_required
 def get_admin_users():
     users = load_users()
     safe_users = [sanitize_user(user) for user in users]
@@ -175,7 +184,7 @@ def get_admin_users():
 
 
 @app.route("/admin/users", methods=["POST"])
-@admin_required
+@admin_or_owner_required
 def create_admin_user():
     try:
         data = request.get_json(silent=True) or {}
@@ -186,8 +195,14 @@ def create_admin_user():
         if not email or not password:
             return jsonify({"error": "Email a heslo su povinne"}), 400
 
-        if role not in ["admin", "user"]:
+        if role not in ["owner", "admin", "user"]:
             return jsonify({"error": "Neplatna rola"}), 400
+
+        current_user = session.get("user", {})
+        current_role = current_user.get("role")
+
+        if current_role == "admin" and role != "user":
+            return jsonify({"error": "Admin moze vytvorit iba usera"}), 403
 
         existing = supabase.table("users").select("email").eq("email", email).execute()
         if existing.data:
@@ -212,7 +227,7 @@ def create_admin_user():
 
 
 @app.route("/admin/users/<path:email>", methods=["PATCH"])
-@admin_required
+@admin_or_owner_required
 def update_admin_user(email):
     try:
         target_email = unquote(email)
@@ -229,21 +244,32 @@ def update_admin_user(email):
 
         current_session_user = session.get("user", {})
         current_email = current_session_user.get("email", "")
+        current_role = current_session_user.get("role", "")
 
+        target_role = existing_user.get("role", "user")
         update_payload = {}
+
+        if current_role == "admin":
+            if target_role != "user":
+                return jsonify({"error": "Admin moze upravovat iba userov"}), 403
+
+            if new_role is not None and str(new_role).strip().lower() != "user":
+                return jsonify({"error": "Admin moze nastavit iba rolu user"}), 403
 
         if new_role is not None:
             new_role = str(new_role).strip().lower()
 
-            if new_role not in ["admin", "user"]:
+            if new_role not in ["owner", "admin", "user"]:
                 return jsonify({"error": "Neplatna rola"}), 400
 
-            if (
-                existing_user.get("role") == "admin"
-                and new_role == "user"
-                and count_admins(users) <= 1
-            ):
-                return jsonify({"error": "Musi existovat aspon jeden admin"}), 400
+            if current_role == "admin" and new_role != "user":
+                return jsonify({"error": "Admin nemoze povysovat roly"}), 403
+
+            if target_role == "owner" and current_role != "owner":
+                return jsonify({"error": "Ownera moze upravit iba owner"}), 403
+
+            if target_role == "owner" and new_role != "owner" and count_owners(users) <= 1:
+                return jsonify({"error": "Musi existovat aspon jeden owner"}), 400
 
             update_payload["role"] = new_role
 
@@ -251,6 +277,10 @@ def update_admin_user(email):
             new_password = str(new_password).strip()
             if not new_password:
                 return jsonify({"error": "Heslo nemoze byt prazdne"}), 400
+
+            if current_role == "admin" and target_role != "user":
+                return jsonify({"error": "Admin moze menit heslo iba userovi"}), 403
+
             update_payload["password"] = generate_password_hash(new_password)
 
         if not update_payload:
@@ -275,7 +305,7 @@ def update_admin_user(email):
 
 
 @app.route("/admin/users/<path:email>", methods=["DELETE"])
-@admin_required
+@admin_or_owner_required
 def delete_admin_user(email):
     try:
         target_email = unquote(email)
@@ -287,12 +317,20 @@ def delete_admin_user(email):
 
         current_session_user = session.get("user", {})
         current_email = current_session_user.get("email", "")
+        current_role = current_session_user.get("role", "")
+        target_role = existing_user.get("role", "user")
 
         if current_email.lower() == target_email.lower():
             return jsonify({"error": "Nemozes zmazat sam seba"}), 400
 
-        if existing_user.get("role") == "admin" and count_admins(users) <= 1:
-            return jsonify({"error": "Nemozes zmazat posledneho admina"}), 400
+        if current_role == "admin" and target_role != "user":
+            return jsonify({"error": "Admin moze mazat iba userov"}), 403
+
+        if target_role == "owner" and current_role != "owner":
+            return jsonify({"error": "Ownera moze zmazat iba owner"}), 403
+
+        if target_role == "owner" and count_owners(users) <= 1:
+            return jsonify({"error": "Nemozes zmazat posledneho ownera"}), 400
 
         supabase.table("users").delete().eq("email", target_email).execute()
 
