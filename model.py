@@ -239,6 +239,15 @@ def run_nanobanana_edit(
     if not api_key:
         raise ValueError("Chyba API key.")
 
+    if image_paths and len(image_paths) > 0:
+        reference_lines = ["Reference images:"]
+
+        for i in range(len(image_paths)):
+            reference_lines.append(f"Image {i+1}: reference image {i+1}")
+
+        reference_text = "\n".join(reference_lines)
+        prompt = reference_text + "\n\n" + prompt
+
     normalized_model = (model_name or "").strip().lower()
 
     if normalized_model in ["flash", "pro"]:
