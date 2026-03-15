@@ -77,23 +77,23 @@ def get_user_settings_by_email(email):
 
     default_settings = {
         "user_email": email,
-        "provider": "wavespeed",
-        "api_key": "",
-        "model": "seedream-4.5",
+        "active_provider": "wavespeed",
+        "wavespeed_api_key": "",
+        "sjinn_api_key": "",
     }
 
     supabase.table("user_settings").insert(default_settings).execute()
     return default_settings
 
 
-def save_user_settings(email, provider, api_key, model):
+def save_user_settings(email, active_provider, wavespeed_api_key, sjinn_api_key):
     existing = supabase.table("user_settings").select("id").eq("user_email", email).execute()
 
     payload = {
         "user_email": email,
-        "provider": provider,
-        "api_key": api_key,
-        "model": model,
+        "active_provider": active_provider,
+        "wavespeed_api_key": wavespeed_api_key,
+        "sjinn_api_key": sjinn_api_key,
     }
 
     if existing.data:
