@@ -362,7 +362,7 @@ def update_admin_user(email):
         if new_password is not None:
             new_password = str(new_password).strip()
             if not new_password:
-                return jsonify({"error": "Heslo nemoze byt prazdne"}), 400
+                return jsonify({"error": "Heslo nemoce byt prazdne"}), 400
 
             if current_role == "admin" and target_role != "user":
                 return jsonify({"error": "Admin moze menit heslo iba userovi"}), 403
@@ -446,19 +446,19 @@ def generate():
         safety_threshold = request.form.get("safety_threshold", "BLOCK_ONLY_HIGH").strip()
 
         current_user = session.get("user", {})
-current_email = current_user.get("email", "")
-user_settings = get_user_settings_by_email(current_email)
+        current_email = current_user.get("email", "")
+        user_settings = get_user_settings_by_email(current_email)
 
-provider = user_settings.get("active_provider", "wavespeed")
+        provider = user_settings.get("active_provider", "wavespeed")
 
-if provider == "wavespeed":
-    user_api_key = user_settings.get("wavespeed_api_key", "").strip()
-elif provider == "sjinn":
-    user_api_key = user_settings.get("sjinn_api_key", "").strip()
-else:
-    return jsonify({"error": "Nepodporovany provider v settings"}), 400
+        if provider == "wavespeed":
+            user_api_key = user_settings.get("wavespeed_api_key", "").strip()
+        elif provider == "sjinn":
+            user_api_key = user_settings.get("sjinn_api_key", "").strip()
+        else:
+            return jsonify({"error": "Nepodporovany provider v settings"}), 400
 
-model_name = request.form.get("model_name", "seedream-4.5").strip()
+        model_name = request.form.get("model_name", "seedream-4.5").strip()
 
         batch_count_raw = request.form.get("batch_count", "1").strip()
         try:
