@@ -2,7 +2,6 @@ flask
 flask-cors
 python-dotenv
 gunicorn
-werkzeug
 requests
 Pillow
 supabase
