@@ -444,21 +444,28 @@ def generate():
         aspect_ratio = request.form.get("aspect_ratio", "1:1").strip()
         quality = request.form.get("quality", "2K").strip()
         safety_threshold = request.form.get("safety_threshold", "BLOCK_ONLY_HIGH").strip()
+        model_name = request.form.get("model_name", "flash").strip()
 
         current_user = session.get("user", {})
         current_email = current_user.get("email", "")
         user_settings = get_user_settings_by_email(current_email)
 
-        provider = user_settings.get("active_provider", "wavespeed")
+        normalized_model = model_name.lower()
 
-        if provider == "wavespeed":
-            user_api_key = user_settings.get("wavespeed_api_key", "").strip()
-        elif provider == "sjinn":
-            user_api_key = user_settings.get("sjinn_api_key", "").strip()
+        # NanoBanana ide vzdy cez Gemini API
+        if normalized_model in ["flash", "pro"]:
+            provider = "gemini"
+            user_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         else:
-            return jsonify({"error": "Nepodporovany provider v settings"}), 400
+            # Seedream ide cez aktivneho providera zo settings
+            provider = user_settings.get("active_provider", "wavespeed")
 
-        model_name = request.form.get("model_name", "seedream-4.5").strip()
+            if provider == "wavespeed":
+                user_api_key = user_settings.get("wavespeed_api_key", "").strip()
+            elif provider == "sjinn":
+                user_api_key = user_settings.get("sjinn_api_key", "").strip()
+            else:
+                return jsonify({"error": "Nepodporovany provider v settings"}), 400
 
         batch_count_raw = request.form.get("batch_count", "1").strip()
         try:
@@ -470,6 +477,8 @@ def generate():
             return jsonify({"error": "batch_count musi byt v rozsahu 1 az 5"}), 400
 
         if not user_api_key:
+            if provider == "gemini":
+                return jsonify({"error": "V Render env chyba GEMINI_API_KEY"}), 500
             return jsonify({"error": "Najprv si uloz API key v Settings."}), 400
 
         if not prompt:
