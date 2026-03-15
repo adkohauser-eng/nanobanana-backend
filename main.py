@@ -214,9 +214,9 @@ def get_settings():
         settings = get_user_settings_by_email(email)
 
         return jsonify({
-            "provider": settings.get("provider", "wavespeed"),
-            "api_key": settings.get("api_key", ""),
-            "model": settings.get("model", "seedream-4.5"),
+            "active_provider": settings.get("active_provider", "wavespeed"),
+            "wavespeed_api_key": settings.get("wavespeed_api_key", ""),
+            "sjinn_api_key": settings.get("sjinn_api_key", ""),
         }), 200
 
     except Exception as e:
