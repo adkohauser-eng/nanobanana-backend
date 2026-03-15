@@ -1,0 +1,17 @@
+[
+  {
+    "email": "fnshorty@gmail.com",
+    "password": "Lolersko1994",
+    "role": "admin"
+  },
+  {
+    "email": "user@nanobanana.local",
+    "password": "abcdef",
+    "role": "user"
+  },
+  {
+    "email": "fstrasko@gmail.com",
+    "password": "Lolers1994",
+    "role": "admin"
+  }
+]
