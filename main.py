@@ -232,22 +232,24 @@ def save_settings():
         email = current_user.get("email", "")
 
         data = request.get_json(silent=True) or {}
-        provider = data.get("provider", "wavespeed").strip().lower()
-        api_key = data.get("api_key", "").strip()
-        model = data.get("model", "seedream-4.5").strip()
+        active_provider = data.get("active_provider", "wavespeed").strip().lower()
+        wavespeed_api_key = data.get("wavespeed_api_key", "").strip()
+        sjinn_api_key = data.get("sjinn_api_key", "").strip()
 
-        if provider not in ["wavespeed", "sjinn"]:
+        if active_provider not in ["wavespeed", "sjinn"]:
             return jsonify({"error": "Neplatny provider"}), 400
 
-        if not api_key:
-            return jsonify({"error": "API key je povinny"}), 400
+        if active_provider == "wavespeed" and not wavespeed_api_key:
+            return jsonify({"error": "Pre WaveSpeed musis ulozit API key"}), 400
 
-        save_user_settings(email, provider, api_key, model)
+        if active_provider == "sjinn" and not sjinn_api_key:
+            return jsonify({"error": "Pre SJinn musis ulozit API key"}), 400
+
+        save_user_settings(email, active_provider, wavespeed_api_key, sjinn_api_key)
 
         return jsonify({
             "message": "Settings ulozene",
-            "provider": provider,
-            "model": model,
+            "active_provider": active_provider,
         }), 200
 
     except Exception as e:
