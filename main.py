@@ -437,36 +437,6 @@ def generate():
 def serve_output(filename):
     return send_from_directory(OUTPUT_DIR, filename)
 
-@app.route("/bootstrap-owner", methods=["POST"])
-def bootstrap_owner():
-    try:
-        existing = supabase.table("users").select("email").limit(1).execute()
-        if existing.data:
-            return jsonify({"error": "Pouzivatelia uz existuju"}), 400
-
-        data = request.get_json(silent=True) or {}
-        email = data.get("email", "").strip()
-        password = data.get("password", "").strip()
-
-        if not email or not password:
-            return jsonify({"error": "Email a heslo su povinne"}), 400
-
-        new_user = {
-            "email": email,
-            "password": generate_password_hash(password),
-            "role": "owner",
-        }
-
-        supabase.table("users").insert(new_user).execute()
-
-        return jsonify({
-            "message": "Owner vytvoreny",
-            "user": sanitize_user(new_user),
-        }), 201
-
-    except Exception as e:
-        print("BOOTSTRAP OWNER ERROR:", str(e))
-        return jsonify({"error": f"Chyba pri bootstrap ownerovi: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
