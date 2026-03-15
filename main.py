@@ -15,7 +15,6 @@ from model import run_nanobanana_edit
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -67,6 +66,40 @@ def add_cors_headers(response):
 def load_users():
     result = supabase.table("users").select("email, password, role").execute()
     return result.data or []
+
+
+def get_user_settings_by_email(email):
+    result = supabase.table("user_settings").select("*").eq("user_email", email).execute()
+    rows = result.data or []
+
+    if rows:
+        return rows[0]
+
+    default_settings = {
+        "user_email": email,
+        "provider": "wavespeed",
+        "api_key": "",
+        "model": "seedream-4.5",
+    }
+
+    supabase.table("user_settings").insert(default_settings).execute()
+    return default_settings
+
+
+def save_user_settings(email, provider, api_key, model):
+    existing = supabase.table("user_settings").select("id").eq("user_email", email).execute()
+
+    payload = {
+        "user_email": email,
+        "provider": provider,
+        "api_key": api_key,
+        "model": model,
+    }
+
+    if existing.data:
+        supabase.table("user_settings").update(payload).eq("user_email", email).execute()
+    else:
+        supabase.table("user_settings").insert(payload).execute()
 
 
 def sanitize_user(user):
@@ -169,6 +202,57 @@ def logout():
     session.pop("user", None)
     session.clear()
     return jsonify({"message": "Odhlaseny"}), 200
+
+
+@app.route("/settings", methods=["GET"])
+@login_required
+def get_settings():
+    try:
+        current_user = session.get("user", {})
+        email = current_user.get("email", "")
+
+        settings = get_user_settings_by_email(email)
+
+        return jsonify({
+            "provider": settings.get("provider", "wavespeed"),
+            "api_key": settings.get("api_key", ""),
+            "model": settings.get("model", "seedream-4.5"),
+        }), 200
+
+    except Exception as e:
+        print("GET SETTINGS ERROR:", str(e))
+        return jsonify({"error": f"Chyba pri nacitani settings: {str(e)}"}), 500
+
+
+@app.route("/settings", methods=["POST"])
+@login_required
+def save_settings():
+    try:
+        current_user = session.get("user", {})
+        email = current_user.get("email", "")
+
+        data = request.get_json(silent=True) or {}
+        provider = data.get("provider", "wavespeed").strip().lower()
+        api_key = data.get("api_key", "").strip()
+        model = data.get("model", "seedream-4.5").strip()
+
+        if provider not in ["wavespeed", "sjinn"]:
+            return jsonify({"error": "Neplatny provider"}), 400
+
+        if not api_key:
+            return jsonify({"error": "API key je povinny"}), 400
+
+        save_user_settings(email, provider, api_key, model)
+
+        return jsonify({
+            "message": "Settings ulozene",
+            "provider": provider,
+            "model": model,
+        }), 200
+
+    except Exception as e:
+        print("SAVE SETTINGS ERROR:", str(e))
+        return jsonify({"error": f"Chyba pri ukladani settings: {str(e)}"}), 500
 
 
 @app.route("/admin/users", methods=["GET"])
@@ -357,8 +441,15 @@ def generate():
         iphone_style = request.form.get("iphone_style", "false").lower() == "true"
         aspect_ratio = request.form.get("aspect_ratio", "1:1").strip()
         quality = request.form.get("quality", "2K").strip()
-        model_name = request.form.get("model_name", "flash").strip()
         safety_threshold = request.form.get("safety_threshold", "BLOCK_ONLY_HIGH").strip()
+
+        current_user = session.get("user", {})
+        current_email = current_user.get("email", "")
+        user_settings = get_user_settings_by_email(current_email)
+
+        provider = user_settings.get("provider", "wavespeed")
+        user_api_key = user_settings.get("api_key", "").strip()
+        model_name = user_settings.get("model", "seedream-4.5").strip()
 
         batch_count_raw = request.form.get("batch_count", "1").strip()
         try:
@@ -369,8 +460,8 @@ def generate():
         if batch_count < 1 or batch_count > 5:
             return jsonify({"error": "batch_count musi byt v rozsahu 1 az 5"}), 400
 
-        if not API_KEY:
-            return jsonify({"error": "V backende chyba GEMINI_API_KEY v Environment Variables."}), 500
+        if not user_api_key:
+            return jsonify({"error": "Najprv si uloz API key v Settings."}), 400
 
         if not prompt:
             return jsonify({"error": "Prompt je prazdny"}), 400
@@ -408,7 +499,8 @@ def generate():
             result_path, width, height, resolved_model = run_nanobanana_edit(
                 prompt=prompt,
                 image_paths=paths,
-                api_key=API_KEY,
+                api_key=user_api_key,
+                provider=provider,
                 iphone_style=iphone_style,
                 aspect_ratio=aspect_ratio,
                 quality=quality,
@@ -424,6 +516,7 @@ def generate():
             "width": width,
             "height": height,
             "model": resolved_model,
+            "provider": provider,
             "safety_threshold": safety_threshold,
             "batch_count": batch_count,
         }), 200
