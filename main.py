@@ -1,5 +1,4 @@
 import os
-import json
 import uuid
 from datetime import timedelta
 from functools import wraps
@@ -9,12 +8,20 @@ from flask import Flask, request, jsonify, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 from model import run_nanobanana_edit
 
 load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    raise RuntimeError("Chybaju SUPABASE_URL alebo SUPABASE_SERVICE_ROLE_KEY v Environment Variables.")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "nanobanana-secret-key")
@@ -23,68 +30,42 @@ app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_SECURE"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=7)
 
+ALLOWED_ORIGINS = [
+    "https://shortyofm.eu",
+    "https://www.shortyofm.eu",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+
 CORS(
     app,
     supports_credentials=True,
-    resources={
-        r"/*": {
-            "origins": [
-                "https://shortyofm.eu",
-                "https://www.shortyofm.eu",
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-                "http://localhost:8080",
-                "http://127.0.0.1:8080",
-            ]
-        }
-    },
-
-@app.after_request
-def add_cors_headers(response):
-    origin = request.headers.get("Origin")
-    allowed_origins = {
-        "https://shortyofm.eu",
-        "https://www.shortyofm.eu",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-    }
-
-    if origin in allowed_origins:
-        response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
-
-    return response
-
-    @app.route("/generate", methods=["OPTIONS"])
-def generate_options():
-    return ("", 204)
-    
+    resources={r"/*": {"origins": ALLOWED_ORIGINS}},
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "..", "outputs")
-USERS_FILE = os.path.join(BASE_DIR, "users.json")
-
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if origin in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+    return response
+
+
 def load_users():
-    if not os.path.exists(USERS_FILE):
-        return []
-
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+    result = supabase.table("users").select("email, password, role").execute()
+    return result.data or []
 
 
 def sanitize_user(user):
@@ -130,6 +111,18 @@ def home():
     return jsonify({"message": "Backend bezi OK"}), 200
 
 
+@app.route("/me", methods=["GET"])
+def me():
+    user = session.get("user")
+    if not user:
+        return jsonify({"authenticated": False}), 200
+
+    return jsonify({
+        "authenticated": True,
+        "user": user,
+    }), 200
+
+
 @app.route("/login", methods=["POST"])
 def login():
     try:
@@ -159,19 +152,6 @@ def login():
     except Exception as e:
         print("LOGIN ERROR:", str(e))
         return jsonify({"error": f"Login chyba: {str(e)}"}), 500
-
-
-@app.route("/me", methods=["GET"])
-def me():
-    user = session.get("user")
-
-    if not user:
-        return jsonify({"authenticated": False}), 200
-
-    return jsonify({
-        "authenticated": True,
-        "user": user,
-    }), 200
 
 
 @app.route("/logout", methods=["POST"])
@@ -208,10 +188,8 @@ def create_admin_user():
         if role not in ["admin", "user"]:
             return jsonify({"error": "Neplatna rola"}), 400
 
-        users = load_users()
-        _, existing_user = find_user_by_email(users, email)
-
-        if existing_user:
+        existing = supabase.table("users").select("email").eq("email", email).execute()
+        if existing.data:
             return jsonify({"error": "Pouzivatel s tymto emailom uz existuje"}), 409
 
         new_user = {
@@ -220,8 +198,7 @@ def create_admin_user():
             "role": role,
         }
 
-        users.append(new_user)
-        save_users(users)
+        supabase.table("users").insert(new_user).execute()
 
         return jsonify({
             "message": "Pouzivatel bol vytvoreny",
@@ -244,13 +221,15 @@ def update_admin_user(email):
         new_role = data.get("role")
 
         users = load_users()
-        index, existing_user = find_user_by_email(users, target_email)
+        _, existing_user = find_user_by_email(users, target_email)
 
         if existing_user is None:
             return jsonify({"error": "Pouzivatel neexistuje"}), 404
 
         current_session_user = session.get("user", {})
         current_email = current_session_user.get("email", "")
+
+        update_payload = {}
 
         if new_role is not None:
             new_role = str(new_role).strip().lower()
@@ -265,25 +244,28 @@ def update_admin_user(email):
             ):
                 return jsonify({"error": "Musi existovat aspon jeden admin"}), 400
 
-            users[index]["role"] = new_role
-
-            if current_email.lower() == target_email.lower():
-                session["user"]["role"] = new_role
+            update_payload["role"] = new_role
 
         if new_password is not None:
             new_password = str(new_password).strip()
             if not new_password:
                 return jsonify({"error": "Heslo nemoze byt prazdne"}), 400
-            users[index]["password"] = new_password
+            update_payload["password"] = new_password
 
-        if new_role is None and new_password is None:
+        if not update_payload:
             return jsonify({"error": "Nemas co menit"}), 400
 
-        save_users(users)
+        supabase.table("users").update(update_payload).eq("email", target_email).execute()
+
+        updated = supabase.table("users").select("email, role").eq("email", target_email).single().execute()
+        updated_user = updated.data
+
+        if current_email.lower() == target_email.lower():
+            session["user"] = sanitize_user(updated_user)
 
         return jsonify({
             "message": "Pouzivatel bol upraveny",
-            "user": sanitize_user(users[index]),
+            "user": sanitize_user(updated_user),
         }), 200
 
     except Exception as e:
@@ -297,7 +279,7 @@ def delete_admin_user(email):
     try:
         target_email = unquote(email)
         users = load_users()
-        index, existing_user = find_user_by_email(users, target_email)
+        _, existing_user = find_user_by_email(users, target_email)
 
         if existing_user is None:
             return jsonify({"error": "Pouzivatel neexistuje"}), 404
@@ -311,17 +293,21 @@ def delete_admin_user(email):
         if existing_user.get("role") == "admin" and count_admins(users) <= 1:
             return jsonify({"error": "Nemozes zmazat posledneho admina"}), 400
 
-        deleted_user = users.pop(index)
-        save_users(users)
+        supabase.table("users").delete().eq("email", target_email).execute()
 
         return jsonify({
             "message": "Pouzivatel bol zmazany",
-            "user": sanitize_user(deleted_user),
+            "user": sanitize_user(existing_user),
         }), 200
 
     except Exception as e:
         print("DELETE USER ERROR:", str(e))
         return jsonify({"error": f"Chyba pri mazani pouzivatela: {str(e)}"}), 500
+
+
+@app.route("/generate", methods=["OPTIONS"])
+def generate_options():
+    return ("", 204)
 
 
 @app.route("/generate", methods=["POST"])
@@ -412,8 +398,6 @@ def generate():
 def serve_output(filename):
     return send_from_directory(OUTPUT_DIR, filename)
 
-
-import os
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
